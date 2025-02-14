@@ -22,7 +22,6 @@ def validate_config(config):
         'account',
         'dbname',
         'user',
-        'password',
         'warehouse',
         's3_bucket',
         'stage',
@@ -33,7 +32,6 @@ def validate_config(config):
         'account',
         'dbname',
         'user',
-        'password',
         'warehouse',
         'file_format'
     ]
@@ -55,6 +53,19 @@ def validate_config(config):
     for k in required_config_keys:
         if not config.get(k, None):
             errors.append(f"Required key is missing from config: [{k}]")
+
+    # Check authentication configuration
+    if not config.get('password') and not config.get('private_key') and not config.get('private_key_path'):
+        errors.append("No authentication method provided. Either 'password', 'private_key', or 'private_key_path' must be specified")
+
+    # Validate that only one authentication method is provided
+    auth_methods = [
+        config.get('password'),
+        config.get('private_key'),
+        config.get('private_key_path')
+    ]
+    if len([x for x in auth_methods if x]) > 1:
+        errors.append("Multiple authentication methods provided. Please specify only one of: 'password', 'private_key', or 'private_key_path'")
 
     # Check target schema config
     config_default_target_schema = config.get('default_target_schema', None)
@@ -291,23 +302,43 @@ class DbSync:
         if self.stream_schema_message:
             stream = self.stream_schema_message['stream']
 
-        return snowflake.connector.connect(
-            user=self.connection_config['user'],
-            password=self.connection_config['password'],
-            account=self.connection_config['account'],
-            database=self.connection_config['dbname'],
-            warehouse=self.connection_config['warehouse'],
-            role=self.connection_config.get('role', None),
-            autocommit=True,
-            session_parameters={
-                # Quoted identifiers should be case sensitive
-                'QUOTED_IDENTIFIERS_IGNORE_CASE': 'FALSE',
-                'QUERY_TAG': create_query_tag(self.connection_config.get('query_tag'),
-                                              database=self.connection_config['dbname'],
-                                              schema=self.schema_name,
-                                              table=self.table_name(stream, False, True))
-            }
-        )
+        # Determine authentication method
+        auth_props = {}
+        if self.connection_config.get('private_key_path'):
+            # Read private key file
+            try:
+                with open(self.connection_config['private_key_path'], 'rb') as key_file:
+                    p_key = key_file.read()
+                    auth_props['private_key'] = p_key
+            except (IOError, OSError) as e:
+                raise Exception(f"Unable to read private key file: {str(e)}") from e
+        elif self.connection_config.get('private_key'):
+            # Use private key directly from config
+            auth_props['private_key'] = self.connection_config['private_key']
+        else:
+            # Fall back to password authentication
+            auth_props['password'] = self.connection_config['password']
+
+        try:
+            return snowflake.connector.connect(
+                user=self.connection_config['user'],
+                account=self.connection_config['account'],
+                database=self.connection_config['dbname'],
+                warehouse=self.connection_config['warehouse'],
+                role=self.connection_config.get('role', None),
+                autocommit=True,
+                session_parameters={
+                    # Quoted identifiers should be case sensitive
+                    'QUOTED_IDENTIFIERS_IGNORE_CASE': 'FALSE',
+                    'QUERY_TAG': create_query_tag(self.connection_config.get('query_tag'),
+                                                  database=self.connection_config['dbname'],
+                                                  schema=self.schema_name,
+                                                  table=self.table_name(stream, False, True))
+                },
+                **auth_props
+            )
+        except snowflake.connector.errors.ProgrammingError as e:
+            raise Exception(f"Error connecting to Snowflake: {str(e)}") from e
 
     def query(self, query: Union[str, List[str]], params: Dict = None, max_records=0) -> List[Dict]:
         """Run an SQL query in snowflake"""

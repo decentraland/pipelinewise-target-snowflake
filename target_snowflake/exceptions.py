@@ -31,3 +31,8 @@ class UnexpectedMessageTypeException(Exception):
 
 class PrimaryKeyNotFoundException(Exception):
     """Exception to raise when primary key not found in the record message"""
+
+
+class SnowflakeAuthenticationError(Exception):
+    """Raised when there are issues with Snowflake authentication"""
+    pass
