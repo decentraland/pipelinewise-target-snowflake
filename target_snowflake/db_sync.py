@@ -10,7 +10,7 @@ from target_snowflake import flattening
 from target_snowflake import stream_utils
 from target_snowflake.file_format import FileFormat, FileFormatTypes
 
-from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFoundException
+from target_snowflake.exceptions import SnowflakeAuthenticationError, TooManyRecordsException, PrimaryKeyNotFoundException
 from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
 from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
@@ -299,17 +299,26 @@ class DbSync:
             self.upload_client = SnowflakeUploadClient(connection_config, self)
 
     def get_private_key(self):
-        p_key = serialization.load_pem_private_key(
-            self.connection_config['private_key'],
-            password=None,
-            backend=default_backend(),
-        )
+        """Get private key for authentication"""
+        try:
+            # Convert private key to bytes if it's a string
+            private_key = self.connection_config['private_key']
+            if isinstance(private_key, str):
+                private_key = private_key.encode('utf-8')
 
-        return p_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+            p_key = serialization.load_pem_private_key(
+                private_key,
+                password=None,
+                backend=default_backend(),
+            )
+
+            return p_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        except Exception as e:
+            raise SnowflakeAuthenticationError(f"Error processing private key: {str(e)}") from e
 
     def open_connection(self):
         """Open snowflake connection"""
