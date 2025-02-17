@@ -298,9 +298,9 @@ class DbSync:
         else:
             self.upload_client = SnowflakeUploadClient(connection_config, self)
 
-    def get_private_key(key_content):
+    def get_private_key(self):
         p_key = serialization.load_pem_private_key(
-            key_content,
+            self.connection_config['private_key'],
             password=None,
             backend=default_backend(),
         )
@@ -329,7 +329,7 @@ class DbSync:
                 raise Exception(f"Unable to read private key file: {str(e)}") from e
         elif self.connection_config.get('private_key'):
             # Use private key directly from config
-            auth_props['private_key'] = self.get_private_key(self.connection_config['private_key'])
+            auth_props['private_key'] = self.get_private_key()
         else:
             # Fall back to password authentication
             auth_props['password'] = self.connection_config['password']
