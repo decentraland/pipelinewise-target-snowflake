@@ -14,6 +14,8 @@ from target_snowflake.exceptions import TooManyRecordsException, PrimaryKeyNotFo
 from target_snowflake.upload_clients.s3_upload_client import S3UploadClient
 from target_snowflake.upload_clients.snowflake_upload_client import SnowflakeUploadClient
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 def validate_config(config):
     """Validate configuration"""
@@ -296,6 +298,19 @@ class DbSync:
         else:
             self.upload_client = SnowflakeUploadClient(connection_config, self)
 
+    def get_private_key(key_content):
+        p_key = serialization.load_pem_private_key(
+            key_content,
+            password=None,
+            backend=default_backend(),
+        )
+
+        return p_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
     def open_connection(self):
         """Open snowflake connection"""
         stream = None
@@ -314,7 +329,7 @@ class DbSync:
                 raise Exception(f"Unable to read private key file: {str(e)}") from e
         elif self.connection_config.get('private_key'):
             # Use private key directly from config
-            auth_props['private_key'] = self.connection_config['private_key']
+            auth_props['private_key'] = self.get_private_key(self.connection_config['private_key'])
         else:
             # Fall back to password authentication
             auth_props['password'] = self.connection_config['password']
